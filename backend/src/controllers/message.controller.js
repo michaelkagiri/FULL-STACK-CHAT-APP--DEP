@@ -7,14 +7,35 @@ import { getReceiverSocketId, io } from "../lib/socket.js";
 export const getUsersForSidebar = async (req, res) => {
   try {
     const loggedInUserId = req.user._id;
-    const filteredUsers = await User.find({ _id: { $ne: loggedInUserId } }).select("-password");
 
-    res.status(200).json(filteredUsers);
+    // Fetch all users except the logged-in one
+    const users = await User.find({ _id: { $ne: loggedInUserId } }).select("-password");
+
+    // Add unread message count from each user to the logged-in user
+    const usersWithUnreadCount = await Promise.all(
+      users.map(async (user) => {
+        const unreadCount = await Message.countDocuments({
+          senderId: user._id,
+          receiverId: loggedInUserId,
+          isRead: false,
+        });
+
+        return {
+          _id: user._id,
+          fullName: user.fullName,
+          profilePic: user.profilePic,
+          unreadCount, // ✅ Added field
+        };
+      })
+    );
+
+    res.status(200).json(usersWithUnreadCount); // ✅ Respond with enhanced user data
   } catch (error) {
     console.error("Error in getUsersForSidebar: ", error.message);
     res.status(500).json({ error: "Internal server error" });
   }
 };
+
 
 export const getMessages = async (req, res) => {
   try {
@@ -65,6 +86,23 @@ export const sendMessage = async (req, res) => {
     res.status(201).json(newMessage);
   } catch (error) {
     console.log("Error in sendMessage controller: ", error.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+export const markMessagesAsRead = async (req, res) => {
+  try {
+    const myId = req.user._id;
+    const { id: senderId } = req.params;
+
+    await Message.updateMany(
+      { senderId, receiverId: myId, isRead: false },
+      { $set: { isRead: true } }
+    );
+
+    res.sendStatus(200);
+  } catch (error) {
+    console.error("Error in markMessagesAsRead:", error.message);
     res.status(500).json({ error: "Internal server error" });
   }
 };
